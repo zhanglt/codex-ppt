@@ -1,3 +1,5 @@
+原始代码库：https://github.com/ningzimu/codex-ppt-skill
+
 # Codex PPT Skill
 
 **简体中文** · [English](README_en.md) · [한국어](README_ko.md)
