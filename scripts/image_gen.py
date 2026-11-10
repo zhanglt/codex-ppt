@@ -24,6 +24,7 @@ import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from env_config import load_env_values, validate_provider
 from image_providers import create_image_provider
 from image_providers.atlascloud import atlascloud_model_for_operation
 from image_providers.nebula import NEBULA_BASE_URL, NEBULA_MODEL, NEBULA_SIZE, NebulaImageProvider, is_nebula_base_url, nebula_payload
@@ -50,7 +51,6 @@ GPT_IMAGE_2_MAX_RATIO = 3.0
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_BATCH_JOBS = 500
 DEFAULT_RUNTIME_HOME = "~/.codex-ppt-skill"
-ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_PPT_IMAGE_MODEL")
 
 
 def _die(message: str, code: int = 1) -> None:
@@ -71,19 +71,11 @@ def _runtime_env_path() -> Path:
 
 
 def _load_runtime_env() -> None:
-    path = _runtime_env_path()
-    if not path.exists():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if key not in ENV_FIELDS or os.getenv(key):
-            continue
-        value = value.strip().strip('"').strip("'")
-        os.environ[key] = value
+    try:
+        values = load_env_values(_runtime_env_path())
+    except ValueError as exc:
+        _die(str(exc))
+    os.environ.update(values)
 
 
 def _default_model() -> str:
@@ -948,7 +940,6 @@ def _add_shared_args(parser: argparse.ArgumentParser) -> None:
 
 
 def main() -> int:
-    _load_runtime_env()
     parser = argparse.ArgumentParser(
         description="Fallback CLI for explicit image generation or editing via GPT Image models"
     )
@@ -986,12 +977,17 @@ def main() -> int:
     if args.command == "resume":
         _resume_nebula(args)
         return 0
+    _load_runtime_env()
     if args.base_url is not None:
         os.environ["OPENAI_BASE_URL"] = args.base_url
+    try:
+        validate_provider(os.environ)
+    except ValueError as exc:
+        _die(str(exc))
     args.model = args.model or _default_model()
     nebula = is_nebula_base_url(_api_base_url())
-    args.size = args.size or (NEBULA_SIZE if nebula else DEFAULT_SIZE)
-    args.quality = args.quality or ("high" if nebula else DEFAULT_QUALITY)
+    args.size = args.size or ((os.getenv("NEBULA_SIZE") or NEBULA_SIZE) if nebula else DEFAULT_SIZE)
+    args.quality = args.quality or ((os.getenv("NEBULA_QUALITY") or "high") if nebula else DEFAULT_QUALITY)
     if nebula and getattr(args, "mask", None):
         _die("Nebula image2-4k 文档未声明支持 --mask；请使用参考图编辑。")
     if not nebula and args.response_format is not None:

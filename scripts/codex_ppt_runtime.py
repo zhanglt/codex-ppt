@@ -22,11 +22,11 @@ import urllib.request
 import venv
 
 from image_providers.nebula import NEBULA_MODEL, is_nebula_base_url
+from env_config import ENV_FIELDS, NEBULA_FIELDS, PROVIDERS, load_env_values, read_env_file, validate_provider
 
 
 DEFAULT_RUNTIME_HOME = "~/.codex-ppt-skill"
 DEFAULT_MODEL = "gpt-image-2.5-flare"
-ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_PPT_IMAGE_MODEL")
 
 
 def _runtime_home() -> Path:
@@ -65,19 +65,7 @@ def _mask_secret(value: str) -> str:
 
 
 def _parse_env_file(path: Path) -> Dict[str, str]:
-    if not path.exists():
-        return {}
-    values: Dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key:
-            values[key] = value
-    return values
+    return load_env_values(path, {})
 
 
 def _quote_env_value(value: str) -> str:
@@ -88,15 +76,17 @@ def _quote_env_value(value: str) -> str:
     return value
 
 
-def _write_env_file(path: Path, values: Dict[str, str]) -> None:
+def _write_env_file(path: Path, values: Dict[str, str], sections: Optional[Dict[str, Dict[str, str]]] = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# codex-ppt shared runtime configuration",
         "# Used by Codex, Claude Code, OpenClaw, Hermes Agent, and other local agents.",
     ]
-    for key in ENV_FIELDS:
-        value = values.get(key, "")
-        if value:
+    for key, value in values.items():
+        lines.append(f"{key}={_quote_env_value(value)}")
+    for name, fields in (sections or {}).items():
+        lines.extend(("", f"[{name}]"))
+        for key, value in fields.items():
             lines.append(f"{key}={_quote_env_value(value)}")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -107,10 +97,8 @@ def _write_env_file(path: Path, values: Dict[str, str]) -> None:
 
 
 def _load_env_values(home: Path) -> Dict[str, str]:
-    values = _parse_env_file(_env_path(home))
-    for key in ENV_FIELDS:
-        if os.getenv(key):
-            values[key] = os.environ[key]
+    values = load_env_values(_env_path(home))
+    validate_provider(values)
     return values
 
 
@@ -146,26 +134,44 @@ def _config(args: argparse.Namespace) -> int:
     home = _runtime_home()
     _ensure_dirs(home)
     env_file = _env_path(home)
-    values = _parse_env_file(env_file)
+    root, sections = read_env_file(env_file)
+    provider = args.provider or root.get("IMAGE_PROVIDER", "").strip().lower()
+    if provider:
+        if provider not in PROVIDERS:
+            _die("IMAGE_PROVIDER 仅支持 nebula、openai、atlascloud")
+        root["IMAGE_PROVIDER"] = provider
+        values = sections.setdefault(provider, {})
+    else:
+        if sections:
+            _die(".env 含服务商分组，请使用 config --provider 选择分组")
+        values = root
+
+    fields = NEBULA_FIELDS if provider == "nebula" else {key: key for key in ENV_FIELDS}
+    if provider == "nebula":
+        for key, alias in fields.items():
+            if key in values:
+                values.setdefault(alias, values.pop(key))
 
     if args.api_key:
-        values["OPENAI_API_KEY"] = args.api_key
+        values[fields["OPENAI_API_KEY"]] = args.api_key
 
     if args.base_url is not None:
-        values["OPENAI_BASE_URL"] = args.base_url.strip()
+        values[fields["OPENAI_BASE_URL"]] = args.base_url.strip()
     if args.model is not None:
-        values["CODEX_PPT_IMAGE_MODEL"] = args.model.strip()
+        values[fields["CODEX_PPT_IMAGE_MODEL"]] = args.model.strip()
 
     if args.clear_base_url:
-        values.pop("OPENAI_BASE_URL", None)
+        values.pop(fields["OPENAI_BASE_URL"], None)
 
-    _write_env_file(env_file, values)
+    _write_env_file(env_file, root, sections)
     print(f"Wrote {env_file}")
+    if provider:
+        print(f"IMAGE_PROVIDER={provider}")
     for key in ENV_FIELDS:
-        value = values.get(key, "")
+        value = values.get(fields[key], "")
         if key == "OPENAI_API_KEY":
             value = _mask_secret(value)
-        print(f"{key}={value or '<unset>'}")
+        print(f"{fields[key]}={value or '<unset>'}")
     return 0
 
 
@@ -227,6 +233,7 @@ def _doctor(args: argparse.Namespace) -> int:
     ok = _check_python_imports(_venv_python(home)) and ok
 
     values = _load_env_values(home)
+    print(f"IMAGE_PROVIDER={values.get('IMAGE_PROVIDER') or '<auto>'}")
     api_key = values.get("OPENAI_API_KEY", "")
     base_url = values.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     model = values.get("CODEX_PPT_IMAGE_MODEL", NEBULA_MODEL if is_nebula_base_url(base_url) else DEFAULT_MODEL)
@@ -273,6 +280,7 @@ def _build_parser() -> argparse.ArgumentParser:
     config.add_argument("--base-url")
     config.add_argument("--clear-base-url", action="store_true")
     config.add_argument("--model")
+    config.add_argument("--provider", choices=PROVIDERS, help="选择并更新对应服务商分组，保留其他分组")
     config.set_defaults(func=_config)
 
     doctor = subparsers.add_parser("doctor", help="Check runtime and optional API access")
@@ -286,7 +294,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ValueError as exc:
+        _die(str(exc))
 
 
 if __name__ == "__main__":

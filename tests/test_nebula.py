@@ -252,7 +252,7 @@ class CLITests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.env = {key: value for key, value in os.environ.items()
-                    if key not in {"OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_PPT_IMAGE_MODEL", "CODEX_PPT_HOME"}}
+                    if key not in {"OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_PPT_IMAGE_MODEL", "CODEX_PPT_HOME", "IMAGE_PROVIDER"}}
         self.env["CODEX_PPT_HOME"] = str(self.directory)
 
     def cli(self, *args, env=None):
