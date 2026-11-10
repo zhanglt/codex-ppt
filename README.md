@@ -195,9 +195,74 @@ npx -y skills@latest add ningzimu/codex-ppt-skill \
 > 你可以先正常使用 Codex PPT 开始制作 PPT。一般不需要自己手动配置生图模型；当流程走到“选择生图后端”时，AI 会根据当前环境判断是否需要配置，并在需要时引导你提供相关信息。
 >
 > - 如果你使用的是 Codex 内置图片生成能力，通常不需要额外配置 API key。
-> - 如果你确定要使用第三方供应商或 OpenAI 兼容中转站，请让 AI 先阅读 [生图模型配置指南](skills/codex-ppt/docs/image-model-configuration.md)，再配置 API key、base URL 和模型名。
+> - 如果你确定要使用第三方供应商或 OpenAI 兼容中转站，请让 AI 先阅读 [生图模型配置指南](docs/image-model-configuration.md)，再配置 API key、base URL 和模型名。
 
 指定图片分辨率、提高质量或要求修改某一页，本身不会触发第三方 API 配置。如果你是通过 GPT 会员订阅使用 Codex，并且 Codex 内置图片生成工具可用，通常可以继续使用内置生图能力，不需要准备 API key。
+
+### 共享 `.env` 配置
+
+API/CLI 模式自动读取 `~/.codex-ppt-skill/.env`。Windows 默认路径为 `C:\Users\你的用户名\.codex-ppt-skill\.env`；设置 `CODEX_PPT_HOME` 后改为读取该目录下的 `.env`。配置在技能安装目录之外，可由不同 agent 共用。
+
+文件使用 UTF-8 无 BOM。以下示例可同时保存三个服务商的配置，密钥均为占位符，请替换为自己的有效密钥：
+
+```dotenv
+IMAGE_PROVIDER=nebula
+
+[nebula]
+NEBULA_API_KEY=your-nebula-api-key
+NEBULA_BASE_URL=https://img-api.apinebula.ai/v1
+NEBULA_PPT_IMAGE_MODEL=gpt-image-2-4k
+NEBULA_SIZE=3840x2160
+NEBULA_QUALITY=high
+
+[openai]
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
+
+[atlascloud]
+OPENAI_API_KEY=your-atlascloud-api-key
+OPENAI_BASE_URL=https://api.atlascloud.ai/api/v1/model
+CODEX_PPT_IMAGE_MODEL=openai/gpt-image-2
+```
+
+`IMAGE_PROVIDER` 必须放在第一个分组之前，可选 `nebula`、`openai`、`atlascloud`。工具只加载选中分组，不从其他分组或顶层旧字段补取密钥。选择项未知、缺少同名分组，或文件包含分组却未指定选择项时，会报告配置错误。此设置选择 API 服务商，内置工具与 API/CLI 后端仍按制作流程确认。
+
+| 分组 | 配置说明 |
+| --- | --- |
+| `[nebula]` | 使用 `NEBULA_API_KEY`、`NEBULA_BASE_URL`、`NEBULA_PPT_IMAGE_MODEL`；`image2-4k` 使用 `gpt-image-2-4k`，当前仅支持 `3840x2160`。`NEBULA_QUALITY` 支持 `low`、`medium`、`high`、`auto`，建议 `high`。 |
+| `[openai]` | 使用通用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`CODEX_PPT_IMAGE_MODEL`，也可配置 OpenAI 兼容服务；模型和参数须由服务端支持。 |
+| `[atlascloud]` | 同样使用三个通用字段；适配器自动将模型映射到生图或编辑路由。示例使用已有 `openai/gpt-image-2` 路由，其他模型需确认服务商支持。 |
+
+Nebula 的尺寸、质量配置适用于单图生成、编辑和批量生成；省略时分别使用 `3840x2160`、`high`。其他服务默认尺寸为 `2560x1440`、质量为 `medium`，仍受所选模型的参数限制。
+
+### 切换服务商与参数优先级
+
+可以直接修改文件顶部的 `IMAGE_PROVIDER`，也可以在技能根目录运行：
+
+```powershell
+# 切换到 AtlasCloud，保留其他分组
+python scripts/codex_ppt_runtime.py config --provider atlascloud
+
+# 更新 Nebula 分组并切换到 Nebula
+python scripts/codex_ppt_runtime.py config --provider nebula --model gpt-image-2-4k
+
+# 检查请求参数，不提交生图请求
+python scripts/image_gen.py generate --prompt "一页蓝白配色的汇报封面" --dry-run
+```
+
+`config` 不带 `--provider` 时更新文件当前选中的分组；也可使用 `--api-key`、`--base-url` 更新对应字段。命令写回时保留其他分组的字段，但不保留原有注释和排版。`NEBULA_SIZE`、`NEBULA_QUALITY` 在 `.env` 中直接编辑。
+
+配置优先级：
+
+- 地址、模型：命令行 `--base-url` / `--model` > 通用进程环境变量 `OPENAI_BASE_URL` / `CODEX_PPT_IMAGE_MODEL` > 选中分组。
+- 密钥：进程环境变量 `OPENAI_API_KEY` > 选中分组。已有的通用环境变量也会覆盖 Nebula 文件配置。
+- Nebula 尺寸、质量：命令行 `--size` / `--quality` > 同名进程变量 `NEBULA_SIZE` / `NEBULA_QUALITY` > 分组配置 > 内置默认值。
+- 进程变量 `IMAGE_PROVIDER` 可临时覆盖文件中的选择项；服务商与最终 base URL 对应的适配器必须一致，否则报错。
+
+旧的无分组 `.env` 仍兼容：不设置 `IMAGE_PROVIDER` 时，按 `OPENAI_BASE_URL` 自动选择适配器。`[nebula]` 也兼容旧的三个通用字段；同时存在时优先使用 `NEBULA_*` 字段，`config` 更新此分组时会转换为新字段名。
+
+分组格式由工具包自带解析器处理，不要直接作为 shell 脚本执行或用普通 dotenv 加载器读取。实际 `.env` 和密钥备份应保存在本地，不要提交到 Git。更多细节见 [生图模型配置指南](docs/image-model-configuration.md) 和 [Nebula 图片 API](docs/nebula-image-api.md)。
 
 ## 使用方式
 
