@@ -87,6 +87,7 @@ Available built-in references:
 - `references/创意杂志风.md`
 - `references/电子墨水杂志风.md`
 - `references/数据仪表盘风.md`
+- `references/深蓝水网科技风.md`
 - `references/科研答辩风.md`
 - `references/复古扁平插画风.md`
 - `references/手绘技术解释风.md`

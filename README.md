@@ -203,7 +203,7 @@ npx -y skills@latest add ningzimu/codex-ppt-skill \
 
 API/CLI 模式自动读取 `~/.codex-ppt-skill/.env`。Windows 默认路径为 `C:\Users\你的用户名\.codex-ppt-skill\.env`；设置 `CODEX_PPT_HOME` 后改为读取该目录下的 `.env`。配置在技能安装目录之外，可由不同 agent 共用。
 
-文件使用 UTF-8 无 BOM。以下示例可同时保存三个服务商的配置，密钥均为占位符，请替换为自己的有效密钥：
+文件使用 UTF-8 无 BOM。以下示例可同时保存四个服务商的配置，密钥均为占位符，请替换为自己的有效密钥：
 
 ```dotenv
 IMAGE_PROVIDER=nebula
@@ -224,17 +224,25 @@ CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
 OPENAI_API_KEY=your-atlascloud-api-key
 OPENAI_BASE_URL=https://api.atlascloud.ai/api/v1/model
 CODEX_PPT_IMAGE_MODEL=openai/gpt-image-2
+
+[teamorouter]
+OPENAI_API_KEY=your-teamorouter-api-key
+OPENAI_BASE_URL=https://api.teamorouter.com/v1
+CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
+TEAMOROUTER_SIZE=3840x2160
+TEAMOROUTER_QUALITY=high
 ```
 
-`IMAGE_PROVIDER` 必须放在第一个分组之前，可选 `nebula`、`openai`、`atlascloud`。工具只加载选中分组，不从其他分组或顶层旧字段补取密钥。选择项未知、缺少同名分组，或文件包含分组却未指定选择项时，会报告配置错误。此设置选择 API 服务商，内置工具与 API/CLI 后端仍按制作流程确认。
+`IMAGE_PROVIDER` 必须放在第一个分组之前，可选 `nebula`、`openai`、`atlascloud`、`teamorouter`。工具只加载选中分组，不从其他分组或顶层旧字段补取密钥。选择项未知、缺少同名分组，或文件包含分组却未指定选择项时，会报告配置错误。此设置选择 API 服务商，内置工具与 API/CLI 后端仍按制作流程确认。
 
 | 分组 | 配置说明 |
 | --- | --- |
 | `[nebula]` | 使用 `NEBULA_API_KEY`、`NEBULA_BASE_URL`、`NEBULA_PPT_IMAGE_MODEL`；`image2-4k` 使用 `gpt-image-2-4k`，当前仅支持 `3840x2160`。`NEBULA_QUALITY` 支持 `low`、`medium`、`high`、`auto`，建议 `high`。 |
 | `[openai]` | 使用通用 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`CODEX_PPT_IMAGE_MODEL`，也可配置 OpenAI 兼容服务；模型和参数须由服务端支持。 |
 | `[atlascloud]` | 同样使用三个通用字段；适配器自动将模型映射到生图或编辑路由。示例使用已有 `openai/gpt-image-2` 路由，其他模型需确认服务商支持。 |
+| `[teamorouter]` | 使用三个通用字段；默认地址为 `https://api.teamorouter.com/v1`，默认模型为 `gpt-image-2.5-flare`。`TEAMOROUTER_SIZE`、`TEAMOROUTER_QUALITY` 可设置生图、编辑和批量生成的默认尺寸与质量。 |
 
-Nebula 的尺寸、质量配置适用于单图生成、编辑和批量生成；省略时分别使用 `3840x2160`、`high`。其他服务默认尺寸为 `2560x1440`、质量为 `medium`，仍受所选模型的参数限制。
+Nebula 的尺寸、质量配置适用于单图生成、编辑和批量生成；省略时分别使用 `3840x2160`、`high`。TeamoRouter 可在分组内设置 `TEAMOROUTER_SIZE=3840x2160` 和 `TEAMOROUTER_QUALITY=high`；省略时沿用通用默认值 `2560x1440`、`medium`。其他服务也使用通用默认值，仍受所选模型的参数限制。
 
 ### 切换服务商与参数优先级
 
@@ -251,13 +259,14 @@ python scripts/codex_ppt_runtime.py config --provider nebula --model gpt-image-2
 python scripts/image_gen.py generate --prompt "一页蓝白配色的汇报封面" --dry-run
 ```
 
-`config` 不带 `--provider` 时更新文件当前选中的分组；也可使用 `--api-key`、`--base-url` 更新对应字段。命令写回时保留其他分组的字段，但不保留原有注释和排版。`NEBULA_SIZE`、`NEBULA_QUALITY` 在 `.env` 中直接编辑。
+`config` 不带 `--provider` 时更新文件当前选中的分组；也可使用 `--api-key`、`--base-url` 更新对应字段。命令写回时保留其他分组的字段，但不保留原有注释和排版。`NEBULA_SIZE`、`NEBULA_QUALITY`、`TEAMOROUTER_SIZE`、`TEAMOROUTER_QUALITY` 在 `.env` 中直接编辑。
 
 配置优先级：
 
 - 地址、模型：命令行 `--base-url` / `--model` > 通用进程环境变量 `OPENAI_BASE_URL` / `CODEX_PPT_IMAGE_MODEL` > 选中分组。
 - 密钥：进程环境变量 `OPENAI_API_KEY` > 选中分组。已有的通用环境变量也会覆盖 Nebula 文件配置。
 - Nebula 尺寸、质量：命令行 `--size` / `--quality` > 同名进程变量 `NEBULA_SIZE` / `NEBULA_QUALITY` > 分组配置 > 内置默认值。
+- TeamoRouter 尺寸、质量：命令行 `--size` / `--quality` > 同名进程变量 `TEAMOROUTER_SIZE` / `TEAMOROUTER_QUALITY` > 分组配置 > 通用默认值。
 - 进程变量 `IMAGE_PROVIDER` 可临时覆盖文件中的选择项；服务商与最终 base URL 对应的适配器必须一致，否则报错。
 
 旧的无分组 `.env` 仍兼容：不设置 `IMAGE_PROVIDER` 时，按 `OPENAI_BASE_URL` 自动选择适配器。`[nebula]` 也兼容旧的三个通用字段；同时存在时优先使用 `NEBULA_*` 字段，`config` 更新此分组时会转换为新字段名。

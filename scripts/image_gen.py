@@ -24,7 +24,7 @@ import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from env_config import load_env_values, validate_provider
+from env_config import load_env_values, provider_for_url, validate_provider
 from image_providers import create_image_provider
 from image_providers.atlascloud import atlascloud_model_for_operation
 from image_providers.nebula import NEBULA_BASE_URL, NEBULA_MODEL, NEBULA_SIZE, NebulaImageProvider, is_nebula_base_url, nebula_payload
@@ -144,7 +144,16 @@ def _dependency_hint(package: str, *, upgrade: bool = False) -> str:
 
 
 def _ensure_api_key(dry_run: bool) -> None:
-    if os.getenv("OPENAI_API_KEY"):
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if api_key.lower() in {
+        "your-api-key", "your-nebula-api-key", "your-openai-api-key", "your-provider-api-key",
+    }:
+        message = "OPENAI_API_KEY 仍是文档中的占位值；请在当前服务商分组配置真实 API Key。"
+        if dry_run:
+            _warn(message)
+            return
+        _die(message)
+    if api_key:
         print(f"OPENAI_API_KEY is set. API target: {_api_target_label()}.", file=sys.stderr)
         return
     if dry_run:
@@ -986,8 +995,17 @@ def main() -> int:
         _die(str(exc))
     args.model = args.model or _default_model()
     nebula = is_nebula_base_url(_api_base_url())
-    args.size = args.size or ((os.getenv("NEBULA_SIZE") or NEBULA_SIZE) if nebula else DEFAULT_SIZE)
-    args.quality = args.quality or ((os.getenv("NEBULA_QUALITY") or "high") if nebula else DEFAULT_QUALITY)
+    teamorouter = provider_for_url(_api_base_url() or "") == "teamorouter"
+    if nebula:
+        default_size = os.getenv("NEBULA_SIZE") or NEBULA_SIZE
+        default_quality = os.getenv("NEBULA_QUALITY") or "high"
+    elif teamorouter:
+        default_size = os.getenv("TEAMOROUTER_SIZE") or DEFAULT_SIZE
+        default_quality = os.getenv("TEAMOROUTER_QUALITY") or DEFAULT_QUALITY
+    else:
+        default_size, default_quality = DEFAULT_SIZE, DEFAULT_QUALITY
+    args.size = args.size or default_size
+    args.quality = args.quality or default_quality
     if nebula and getattr(args, "mask", None):
         _die("Nebula image2-4k 文档未声明支持 --mask；请使用参考图编辑。")
     if not nebula and args.response_format is not None:

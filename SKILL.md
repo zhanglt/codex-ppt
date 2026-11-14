@@ -35,7 +35,7 @@ Prefer the built-in image generation/editing tool. Use `scripts/image_gen.py` on
 
 API/CLI 模式也支持 Nebula `image2-4k` 的生图和多参考图编辑。指定该服务时，阅读 `docs/nebula-image-api.md`，使用 `gpt-image-2-4k`、`3840x2160` 和 `high`；不要套用通用的 2K 参数。
 
-API 服务可通过共享 `.env` 顶部的 `IMAGE_PROVIDER` 选择 `[nebula]`、`[openai]` 或 `[atlascloud]` 配置分组；旧的无分组配置仍兼容。配置格式及切换命令见 `docs/image-model-configuration.md`。
+API 服务可通过共享 `.env` 顶部的 `IMAGE_PROVIDER` 选择 `[nebula]`、`[openai]`、`[atlascloud]` 或 `[teamorouter]` 配置分组；旧的无分组配置仍兼容。配置格式及切换命令见 `docs/image-model-configuration.md`。
 
 ## Hard Constraints
 

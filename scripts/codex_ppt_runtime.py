@@ -138,7 +138,7 @@ def _config(args: argparse.Namespace) -> int:
     provider = args.provider or root.get("IMAGE_PROVIDER", "").strip().lower()
     if provider:
         if provider not in PROVIDERS:
-            _die("IMAGE_PROVIDER 仅支持 nebula、openai、atlascloud")
+            _die(f"IMAGE_PROVIDER 仅支持 {', '.join(PROVIDERS)}")
         root["IMAGE_PROVIDER"] = provider
         values = sections.setdefault(provider, {})
     else:

@@ -41,13 +41,21 @@ NEBULA_QUALITY=high
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_BASE_URL=https://api.openai.com/v1
 CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
+
+[teamorouter]
+OPENAI_API_KEY=your-teamorouter-api-key
+OPENAI_BASE_URL=https://api.teamorouter.com/v1
+CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
+TEAMOROUTER_SIZE=3840x2160
+TEAMOROUTER_QUALITY=high
 ```
 
-- `IMAGE_PROVIDER` 必须放在第一个分组之前，支持 `nebula`、`openai`、`atlascloud`；后者使用 `[atlascloud]` 分组。
+- `IMAGE_PROVIDER` 必须放在第一个分组之前，支持 `nebula`、`openai`、`atlascloud`、`teamorouter`。
 - 只加载选中的分组，不读取其他分组或顶部旧配置的密钥。未知服务商、缺失分组、分组存在但未指定选择项均报错。
 - `[nebula]` 使用 `NEBULA_API_KEY`、`NEBULA_BASE_URL`、`NEBULA_PPT_IMAGE_MODEL`；仍兼容分组内旧的通用字段，同时存在时以 `NEBULA_*` 字段为准。`config` 更新此分组时统一写入新字段。进程中的通用环境变量仍按原优先级覆盖文件值。
 - `NEBULA_SIZE`、`NEBULA_QUALITY` 分别设置 Nebula 的默认尺寸和质量，适用于生成、编辑和批量生成。优先级为命令行 `--size` / `--quality` > 同名进程环境变量 > 分组配置 > 内置默认值。省略时使用 `3840x2160`、`high`；非法值仍会被参数校验拒绝。
 - 分组内省略 base URL 时使用对应服务商的默认地址；Nebula 未配置模型时默认 `gpt-image-2-4k`，其他服务默认 `gpt-image-2.5-flare`。AtlasCloud 应填写其实际支持的模型。
+- `[teamorouter]` 使用三个通用字段和 OpenAI Images API 兼容适配器；默认地址为 `https://api.teamorouter.com/v1`，模型为 `gpt-image-2.5-flare`。生成走 `/images/generations`，编辑走 `/images/edits`。`TEAMOROUTER_SIZE`、`TEAMOROUTER_QUALITY` 分别设置生成、编辑和批量生成的默认尺寸与质量；优先级为命令行参数 > 同名进程环境变量 > 分组配置 > 通用默认值。按 `TeamoRoute调用.md` 的尺寸与质量规则设置参数。
 - 优先级为：命令行 `--base-url` / `--model` > 进程环境变量 > 选中分组。进程变量 `IMAGE_PROVIDER` 可临时切换分组。服务商与最终 base URL 的适配器必须一致，否则报错，避免混用密钥和接口。
 - 不含分组且未设置 `IMAGE_PROVIDER` 的旧配置继续按 base URL 自动选择适配器。
 - 这是工具包自带解析器支持的格式；不要直接作为 shell 脚本执行，也不要用普通 dotenv 加载器解析分组。
@@ -106,6 +114,10 @@ Use the provider's model name only when the provider documents a custom name. Ot
 ## Nebula image2-4k
 
 Nebula `image2-4k` 的配置与调用示例见 [Nebula 图片 API](nebula-image-api.md)。其 base URL 为 `https://img-api.apinebula.ai/v1`，模型须为 `gpt-image-2-4k`，令牌须属于 `image2-4k` 分组；该适配器使用专用 HTTP 请求，不依赖通用 SDK 的默认行为。
+
+## TeamoRouter
+
+先在共享 `.env` 的 `[teamorouter]` 中填写有效的 `OPENAI_API_KEY`，然后运行 `python scripts/codex_ppt_runtime.py config --provider teamorouter` 切换服务商。可用 `python scripts/image_gen.py generate --prompt "测试幻灯片" --dry-run` 检查请求参数；dry-run 不验证密钥或真实生图。编辑图片使用同一分组，接口要求上传原图；详细参数见技能根目录的 `TeamoRoute调用.md`。
 
 ## AtlasCloud Example
 

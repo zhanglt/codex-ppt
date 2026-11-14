@@ -290,6 +290,18 @@ class CLITests(unittest.TestCase):
         self.assertEqual(preview["output_format"], "jpeg")
         self.assertEqual(preview["local_output_format"], "png")
 
+    def test_placeholder_key_is_rejected_before_edit_request(self):
+        (self.directory / ".env").write_text(
+            "IMAGE_PROVIDER=nebula\n[nebula]\nNEBULA_API_KEY=your-nebula-api-key\n",
+            encoding="utf-8",
+        )
+        image = self.directory / "input.png"
+        image.write_bytes(image_bytes("PNG", (64, 64)))
+        result = self.cli("edit", "--image", str(image), "--prompt", "edit")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("占位值", result.stderr)
+        self.assertNotIn("Calling Image API", result.stderr)
+
     def test_cli_generate_and_edit_save_decodable_images(self):
         raw = image_bytes()
         requests = []

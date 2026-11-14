@@ -12,7 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from env_config import ENV_FIELDS, NEBULA_OPTIONS, load_env_values, read_env_file
+from env_config import ENV_FIELDS, NEBULA_OPTIONS, TEAMOROUTER_OPTIONS, load_env_values, read_env_file
 from image_providers.factory import create_image_provider
 from image_providers.nebula import NebulaImageProvider
 from image_providers.openai_compatible import OpenAICompatibleImageProvider
@@ -30,6 +30,11 @@ NEBULA_QUALITY=high
 OPENAI_API_KEY=openai-secret
 OPENAI_BASE_URL=https://api.openai.com/v1
 CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
+[teamorouter]
+OPENAI_API_KEY=teamorouter-secret
+CODEX_PPT_IMAGE_MODEL=gpt-image-2.5-flare
+TEAMOROUTER_SIZE=3840x2160
+TEAMOROUTER_QUALITY=high
 """
 
 
@@ -41,7 +46,8 @@ class ProviderConfigTests(unittest.TestCase):
         self.path = self.home / ".env"
         self.path.write_text(CONFIG, encoding="utf-8")
         self.env = {key: value for key, value in os.environ.items()
-                    if key not in (*ENV_FIELDS, *NEBULA_OPTIONS, "IMAGE_PROVIDER", "CODEX_PPT_HOME")}
+                    if key not in (*ENV_FIELDS, *NEBULA_OPTIONS, *TEAMOROUTER_OPTIONS,
+                                   "IMAGE_PROVIDER", "CODEX_PPT_HOME")}
         self.env["CODEX_PPT_HOME"] = str(self.home)
 
     def run_cli(self, script, *args, env=None):
@@ -49,13 +55,19 @@ class ProviderConfigTests(unittest.TestCase):
                               env=env or self.env, capture_output=True, encoding="utf-8")
 
     def test_only_selected_group_is_loaded_and_routes_adapter(self):
-        for provider, expected_class in (("nebula", NebulaImageProvider), ("openai", OpenAICompatibleImageProvider)):
+        for provider, expected_class in (("nebula", NebulaImageProvider), ("openai", OpenAICompatibleImageProvider),
+                                         ("teamorouter", OpenAICompatibleImageProvider)):
             with self.subTest(provider=provider):
                 values = load_env_values(self.path, {"IMAGE_PROVIDER": provider})
                 self.assertNotEqual(values["OPENAI_API_KEY"], "legacy-secret")
                 adapter = create_image_provider(api_key=values["OPENAI_API_KEY"], base_url=values["OPENAI_BASE_URL"])
                 self.assertIsInstance(adapter, expected_class)
         self.assertEqual(load_env_values(self.path, {})["OPENAI_API_KEY"], "nebula secret # with spaces")
+        values = load_env_values(self.path, {"IMAGE_PROVIDER": "teamorouter"})
+        self.assertEqual(values["OPENAI_BASE_URL"], "https://api.teamorouter.com/v1")
+        self.assertEqual(values["CODEX_PPT_IMAGE_MODEL"], "gpt-image-2.5-flare")
+        self.assertEqual(values["TEAMOROUTER_SIZE"], "3840x2160")
+        self.assertEqual(values["TEAMOROUTER_QUALITY"], "high")
 
     def test_process_overrides_and_legacy_config(self):
         values = load_env_values(self.path, {"IMAGE_PROVIDER": "openai", "OPENAI_API_KEY": "process-secret"})
@@ -162,6 +174,45 @@ class ProviderConfigTests(unittest.TestCase):
         result = self.run_cli("image_gen.py", "generate", "--prompt", "test", "--dry-run",
                               "--base-url", "https://example.test/v1")
         self.assertNotEqual(result.returncode, 0)
+
+    def test_teamorouter_generate_edit_batch_and_config(self):
+        from PIL import Image
+        image = self.home / "input.png"
+        Image.new("RGB", (32, 32)).save(image)
+        jobs = self.home / "jobs.jsonl"
+        jobs.write_text('{"prompt":"test"}\n', encoding="utf-8")
+        env = {**self.env, "IMAGE_PROVIDER": "teamorouter"}
+        commands = (("generate", "--prompt", "test"),
+                    ("edit", "--prompt", "test", "--image", str(image)),
+                    ("generate-batch", "--input", str(jobs), "--out-dir", str(self.home / "output")))
+        for command in commands:
+            result = self.run_cli("image_gen.py", *command, "--dry-run", env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            preview = json.loads(result.stdout)
+            self.assertEqual(preview["model"], "gpt-image-2.5-flare")
+            self.assertEqual(preview["size"], "3840x2160")
+            self.assertEqual(preview["quality"], "high")
+            self.assertNotIn("teamorouter-secret", result.stdout + result.stderr)
+        override_env = {**env, "TEAMOROUTER_SIZE": "2048x2048", "TEAMOROUTER_QUALITY": "low"}
+        result = self.run_cli("image_gen.py", "generate", "--prompt", "test", "--dry-run", env=override_env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["size"], "2048x2048")
+        self.assertEqual(json.loads(result.stdout)["quality"], "low")
+        result = self.run_cli("image_gen.py", "generate", "--prompt", "test", "--dry-run",
+                              "--size", "1024x1024", "--quality", "medium", env=override_env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["size"], "1024x1024")
+        self.assertEqual(json.loads(result.stdout)["quality"], "medium")
+        result = self.run_cli("image_gen.py", "generate", "--prompt", "test", "--dry-run",
+                              env={**override_env, "IMAGE_PROVIDER": "openai"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["size"], "2560x1440")
+        self.assertEqual(json.loads(result.stdout)["quality"], "medium")
+        result = self.run_cli("codex_ppt_runtime.py", "config", "--provider", "teamorouter")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read_env_file(self.path)[0]["IMAGE_PROVIDER"], "teamorouter")
+        self.assertEqual(read_env_file(self.path)[1]["nebula"]["NEBULA_API_KEY"],
+                         "nebula secret # with spaces")
 
     def test_config_updates_selected_group_and_preserves_others(self):
         before_root, before_sections = read_env_file(self.path)

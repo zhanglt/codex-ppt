@@ -11,7 +11,8 @@ from urllib.parse import urlparse
 
 ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_PPT_IMAGE_MODEL")
 NEBULA_OPTIONS = ("NEBULA_SIZE", "NEBULA_QUALITY")
-PROVIDERS = ("nebula", "openai", "atlascloud")
+TEAMOROUTER_OPTIONS = ("TEAMOROUTER_SIZE", "TEAMOROUTER_QUALITY")
+PROVIDERS = ("nebula", "openai", "atlascloud", "teamorouter")
 NEBULA_FIELDS = {
     "OPENAI_API_KEY": "NEBULA_API_KEY",
     "OPENAI_BASE_URL": "NEBULA_BASE_URL",
@@ -21,6 +22,7 @@ DEFAULT_URLS = {
     "nebula": "https://img-api.apinebula.ai/v1",
     "openai": "https://api.openai.com/v1",
     "atlascloud": "https://api.atlascloud.ai/api/v1/model",
+    "teamorouter": "https://api.teamorouter.com/v1",
 }
 
 
@@ -60,6 +62,8 @@ def provider_for_url(base_url: str) -> str:
     hostname = (urlparse(base_url).hostname or "").lower()
     if hostname == "img-api.apinebula.ai":
         return "nebula"
+    if hostname == "api.teamorouter.com":
+        return "teamorouter"
     if "atlascloud.ai" in hostname:
         return "atlascloud"
     return "openai"
@@ -70,7 +74,7 @@ def validate_provider(values: Mapping[str, str]) -> None:
     if not provider:
         return
     if provider not in PROVIDERS:
-        raise ValueError("IMAGE_PROVIDER 仅支持 nebula、openai、atlascloud")
+        raise ValueError(f"IMAGE_PROVIDER 仅支持 {', '.join(PROVIDERS)}")
     if provider_for_url(values.get("OPENAI_BASE_URL", "")) != provider:
         raise ValueError("IMAGE_PROVIDER 与 OPENAI_BASE_URL 对应的适配器不一致，请检查配置或命令行覆盖参数")
 
@@ -81,13 +85,15 @@ def load_env_values(path: Path, environ: Mapping[str, str] | None = None) -> Dic
     provider = (env.get("IMAGE_PROVIDER") or root.get("IMAGE_PROVIDER", "")).strip().lower()
     if provider:
         if provider not in PROVIDERS:
-            raise ValueError("IMAGE_PROVIDER 仅支持 nebula、openai、atlascloud")
+            raise ValueError(f"IMAGE_PROVIDER 仅支持 {', '.join(PROVIDERS)}")
         if provider not in sections:
             raise ValueError(f"IMAGE_PROVIDER 指定的 [{provider}] 分组不存在")
         # Grouped credentials never fall back to legacy root credentials.
         values = {key: value for key, value in sections[provider].items() if key in ENV_FIELDS}
+        if provider in {"nebula", "teamorouter"}:
+            options = NEBULA_OPTIONS if provider == "nebula" else TEAMOROUTER_OPTIONS
+            values.update({key: sections[provider][key] for key in options if key in sections[provider]})
         if provider == "nebula":
-            values.update({key: sections[provider][key] for key in NEBULA_OPTIONS if key in sections[provider]})
             for key, alias in NEBULA_FIELDS.items():
                 if alias in sections[provider]:
                     values[key] = sections[provider][alias]
@@ -100,8 +106,10 @@ def load_env_values(path: Path, environ: Mapping[str, str] | None = None) -> Dic
     for key in ENV_FIELDS:
         if env.get(key):
             values[key] = env[key]
-    if provider == "nebula" or (not provider and provider_for_url(values.get("OPENAI_BASE_URL", "")) == "nebula"):
-        for key in NEBULA_OPTIONS:
+    active_provider = provider or provider_for_url(values.get("OPENAI_BASE_URL", ""))
+    if active_provider in {"nebula", "teamorouter"}:
+        options = NEBULA_OPTIONS if active_provider == "nebula" else TEAMOROUTER_OPTIONS
+        for key in options:
             if env.get(key):
                 values[key] = env[key]
     return values
