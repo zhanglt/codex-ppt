@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Dict, Mapping, Tuple
 from urllib.parse import urlparse
 
+from network_proxy import validate_proxy
+
 
 ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_PPT_IMAGE_MODEL")
 NEBULA_OPTIONS = ("NEBULA_SIZE", "NEBULA_QUALITY")
@@ -103,6 +105,9 @@ def load_env_values(path: Path, environ: Mapping[str, str] | None = None) -> Dic
         if sections:
             raise ValueError(".env 含服务商分组，请在文件顶部设置 IMAGE_PROVIDER")
         values = {key: value for key, value in root.items() if key in ENV_FIELDS}
+    proxy = env.get("PROXY") or root.get("PROXY", "")
+    if proxy:
+        values["PROXY"] = validate_proxy(proxy)
     for key in ENV_FIELDS:
         if env.get(key):
             values[key] = env[key]

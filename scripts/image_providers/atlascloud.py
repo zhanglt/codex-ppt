@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen as default_urlopen
 
 from .base import ImageProvider
+from network_proxy import open_with_proxy_fallback
 
 
 UrlOpen = Callable[..., Any]
@@ -31,10 +32,12 @@ class AtlasCloudImageProvider(ImageProvider):
         sleep: Callable[[float], None] = time.sleep,
         poll_interval: float = 2.0,
         max_polls: int = 120,
+        proxy: str = "",
     ) -> None:
         self.api_key = api_key
         self.model_base_url = _model_base_url(base_url)
         self._urlopen = urlopen
+        self.proxy = proxy
         self._sleep = sleep
         self.poll_interval = poll_interval
         self.max_polls = max_polls
@@ -153,7 +156,7 @@ class AtlasCloudImageProvider(ImageProvider):
         if payload is not None:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=data, headers=headers, method=method)
-        with self._urlopen(request, timeout=60) as response:
+        with open_with_proxy_fallback(request, timeout=60, proxy=self.proxy, direct_open=self._urlopen) as response:
             parsed = json.loads(response.read().decode("utf-8"))
         if not isinstance(parsed, dict):
             raise RuntimeError(f"Unexpected AtlasCloud response: {parsed}")
@@ -171,7 +174,7 @@ class AtlasCloudImageProvider(ImageProvider):
         parsed = urlparse(value)
         if parsed.scheme in {"http", "https"}:
             request = Request(value, headers={"User-Agent": USER_AGENT}, method="GET")
-            with self._urlopen(request, timeout=60) as response:
+            with open_with_proxy_fallback(request, timeout=60, proxy=self.proxy, direct_open=self._urlopen) as response:
                 return base64.b64encode(response.read()).decode("ascii")
         return value
 

@@ -20,6 +20,9 @@ metadata:
       - name: CODEX_PPT_HOME
         required: false
         description: Runtime home override.
+      - name: PROXY
+        required: false
+        description: HTTP(S) proxy used after a direct connection failure in API/CLI mode.
     homepage: https://github.com/ningzimu/codex-ppt-skill
 ---
 
@@ -36,6 +39,9 @@ Prefer the built-in image generation/editing tool. Use `scripts/image_gen.py` on
 API/CLI 模式也支持 Nebula `image2-4k` 的生图和多参考图编辑。指定该服务时，阅读 `docs/nebula-image-api.md`，使用 `gpt-image-2-4k`、`3840x2160` 和 `high`；不要套用通用的 2K 参数。
 
 API 服务可通过共享 `.env` 顶部的 `IMAGE_PROVIDER` 选择 `[nebula]`、`[openai]`、`[atlascloud]` 或 `[teamorouter]` 配置分组；旧的无分组配置仍兼容。配置格式及切换命令见 `docs/image-model-configuration.md`。
+
+API/CLI 模式需要网络请求时，若共享 `.env` 顶部配置了 `PROXY=http://127.0.0.1:81`，直连在连接阶段失败后会通过该代理重试一次。具体适用范围见 `docs/image-model-configuration.md`。
+使用其他网络工具下载依赖或读取来源时，也先直连；连接失败后读取同一 `PROXY` 配置，用该工具支持的代理参数重试。可能产生费用的请求只在确认尚未建立连接时重试，避免重复提交。
 
 ## Hard Constraints
 

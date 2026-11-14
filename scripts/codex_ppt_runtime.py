@@ -23,6 +23,7 @@ import venv
 
 from image_providers.nebula import NEBULA_MODEL, is_nebula_base_url
 from env_config import ENV_FIELDS, NEBULA_FIELDS, PROVIDERS, load_env_values, read_env_file, validate_provider
+from network_proxy import open_with_proxy_fallback
 
 
 DEFAULT_RUNTIME_HOME = "~/.codex-ppt-skill"
@@ -195,7 +196,7 @@ def _check_python_imports(python: Path) -> bool:
     return True
 
 
-def _models_request(base_url: str, api_key: str, timeout: int) -> bool:
+def _models_request(base_url: str, api_key: str, timeout: int, proxy: str = "") -> bool:
     endpoint = base_url.rstrip("/") + "/models"
     req = urllib.request.Request(
         endpoint,
@@ -203,7 +204,7 @@ def _models_request(base_url: str, api_key: str, timeout: int) -> bool:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with open_with_proxy_fallback(req, timeout=timeout, proxy=proxy) as resp:
             print(f"models endpoint: HTTP {resp.status}")
             return 200 <= resp.status < 300
     except urllib.error.HTTPError as exc:
@@ -262,7 +263,7 @@ def _doctor(args: argparse.Namespace) -> int:
         elif _is_atlascloud_base_url(base_url):
             print("api check: AtlasCloud provider detected; skipping /models probe")
         else:
-            ok = _models_request(base_url, api_key, args.timeout) and ok
+            ok = _models_request(base_url, api_key, args.timeout, values.get("PROXY", "")) and ok
 
     return 0 if ok else 1
 

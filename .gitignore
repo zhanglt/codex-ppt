@@ -59,7 +59,8 @@ examples/
 !assets/style-previews/*.png
 
 # Test outputs
-tests/
+tests/*
+!tests/test_*.py
 test_output/
 outputs/
 temp/

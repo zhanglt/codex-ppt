@@ -29,6 +29,7 @@ If Codex is being used through a GPT subscription and the built-in image tool is
 
 ```dotenv
 IMAGE_PROVIDER=nebula
+PROXY=http://127.0.0.1:81
 
 [nebula]
 NEBULA_API_KEY=your-nebula-api-key
@@ -52,6 +53,7 @@ TEAMOROUTER_QUALITY=high
 
 - `IMAGE_PROVIDER` 必须放在第一个分组之前，支持 `nebula`、`openai`、`atlascloud`、`teamorouter`。
 - 只加载选中的分组，不读取其他分组或顶部旧配置的密钥。未知服务商、缺失分组、分组存在但未指定选择项均报错。
+- 可在第一个分组之前设置 `PROXY=http://127.0.0.1:81`；进程环境变量 `PROXY` 优先于文件值。未配置时沿用原有网络行为。配置后，API/CLI 生图、编辑、批量生成、结果图片下载及 `doctor --check-api` 先直连；仅在连接拒绝、DNS 解析失败、网络不可达或连接建立超时时经代理重试一次。HTTP 错误、响应读取超时和已提交但结果不明的请求不会因此重试，避免重复计费。
 - `[nebula]` 使用 `NEBULA_API_KEY`、`NEBULA_BASE_URL`、`NEBULA_PPT_IMAGE_MODEL`；仍兼容分组内旧的通用字段，同时存在时以 `NEBULA_*` 字段为准。`config` 更新此分组时统一写入新字段。进程中的通用环境变量仍按原优先级覆盖文件值。
 - `NEBULA_SIZE`、`NEBULA_QUALITY` 分别设置 Nebula 的默认尺寸和质量，适用于生成、编辑和批量生成。优先级为命令行 `--size` / `--quality` > 同名进程环境变量 > 分组配置 > 内置默认值。省略时使用 `3840x2160`、`high`；非法值仍会被参数校验拒绝。
 - 分组内省略 base URL 时使用对应服务商的默认地址；Nebula 未配置模型时默认 `gpt-image-2-4k`，其他服务默认 `gpt-image-2.5-flare`。AtlasCloud 应填写其实际支持的模型。

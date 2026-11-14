@@ -17,6 +17,7 @@ from uuid import uuid4
 import warnings
 
 from .base import ImageProvider
+from network_proxy import open_with_proxy_fallback
 
 
 NEBULA_MODEL = "gpt-image-2-4k"
@@ -82,6 +83,7 @@ class NebulaImageProvider(ImageProvider):
         base_url: Optional[str],
         urlopen: Callable[..., Any] = default_urlopen,
         cache_dir: Optional[Path] = None,
+        proxy: str = "",
     ) -> None:
         self.api_key = api_key
         self.base_url = (base_url or NEBULA_BASE_URL).rstrip("/")
@@ -90,6 +92,7 @@ class NebulaImageProvider(ImageProvider):
         if urlparse(self.base_url).path != "/v1" or urlparse(self.base_url).query:
             raise ValueError("Nebula base URL 应以 /v1 结尾，不含具体接口路径或查询参数。")
         self._urlopen = urlopen
+        self.proxy = proxy
         self.cache_dir = cache_dir if cache_dir is not None else (
             Path(os.getenv("CODEX_PPT_HOME", "~/.codex-ppt-skill")).expanduser()
             / "cache" / "nebula-responses"
@@ -150,7 +153,7 @@ class NebulaImageProvider(ImageProvider):
             method="POST",
         )
         try:
-            with self._urlopen(request, timeout=1800) as response:
+            with open_with_proxy_fallback(request, timeout=1800, proxy=self.proxy, direct_open=self._urlopen) as response:
                 result = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             raise RuntimeError(f"Nebula API 返回 HTTP {exc.code}；未自动重新提交。") from None
@@ -216,7 +219,7 @@ class NebulaImageProvider(ImageProvider):
             request = Request(url, headers={"User-Agent": USER_AGENT,
                                             "Referer": f"{parsed.scheme}://{parsed.netloc}/"})
             try:
-                with self._urlopen(request, timeout=120) as response:
+                with open_with_proxy_fallback(request, timeout=120, proxy=self.proxy, direct_open=self._urlopen) as response:
                     raw = response.read(MAX_IMAGE_BYTES + 1)
             except (OSError, TimeoutError):
                 if encoded:

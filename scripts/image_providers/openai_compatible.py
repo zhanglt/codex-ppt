@@ -8,6 +8,7 @@ import sys
 from typing import Any, Callable, Dict, List, Optional
 
 from .base import ImageProvider
+from network_proxy import is_connect_error
 
 
 ClientFactory = Callable[[], Any]
@@ -80,12 +81,15 @@ async def _generate_one_with_retries(
     *,
     attempts: int,
     job_label: str,
+    proxy_client: Optional[ClientFactory] = None,
 ) -> Any:
     last_exc: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
         try:
             return await client.images.generate(**payload)
         except Exception as exc:
+            if proxy_client is not None and is_connect_error(exc):
+                return await proxy_client().images.generate(**payload)
             last_exc = exc
             if not _is_transient_error(exc):
                 raise
@@ -110,15 +114,24 @@ class OpenAICompatibleImageProvider(ImageProvider):
         base_url: Optional[str],
         client_factory: Optional[ClientFactory] = None,
         async_client_factory: Optional[ClientFactory] = None,
+        proxy: str = "",
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self._client_factory = client_factory
         self._async_client_factory = async_client_factory
+        self.proxy = proxy
         self._async_client: Optional[Any] = None
+        self._proxy_client: Optional[Any] = None
+        self._proxy_async_client: Optional[Any] = None
 
     def generate(self, payload: Dict[str, Any]) -> List[str]:
-        result = self._create_client().images.generate(**payload)
+        try:
+            result = self._create_client().images.generate(**payload)
+        except Exception as exc:
+            if not self.proxy or not is_connect_error(exc):
+                raise
+            result = self._create_proxy_client().images.generate(**payload)
         return [item.b64_json for item in result.data]
 
     def edit(
@@ -132,7 +145,16 @@ class OpenAICompatibleImageProvider(ImageProvider):
             request["image"] = image_files if len(image_files) > 1 else image_files[0]
             if mask_file is not None:
                 request["mask"] = mask_file
-            result = self._create_client().images.edit(**request)
+            try:
+                result = self._create_client().images.edit(**request)
+            except Exception as exc:
+                if not self.proxy or not is_connect_error(exc):
+                    raise
+                for handle in image_files:
+                    handle.seek(0)
+                if mask_file is not None:
+                    mask_file.seek(0)
+                result = self._create_proxy_client().images.edit(**request)
         return [item.b64_json for item in result.data]
 
     async def generate_batch(
@@ -147,6 +169,7 @@ class OpenAICompatibleImageProvider(ImageProvider):
             payload,
             attempts=attempts,
             job_label=job_label,
+            proxy_client=self._create_proxy_async_client if self.proxy else None,
         )
         return [item.b64_json for item in result.data]
 
@@ -159,7 +182,18 @@ class OpenAICompatibleImageProvider(ImageProvider):
             raise RuntimeError(
                 f"openai SDK not installed in the active environment. {_dependency_hint('openai')}"
             ) from exc
+        if self.proxy:
+            from openai import DefaultHttpxClient
+            return OpenAI(api_key=self.api_key, base_url=self.base_url,
+                          http_client=DefaultHttpxClient(trust_env=False), max_retries=0)
         return OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+    def _create_proxy_client(self) -> Any:
+        if self._proxy_client is None:
+            from openai import DefaultHttpxClient, OpenAI
+            self._proxy_client = OpenAI(api_key=self.api_key, base_url=self.base_url,
+                                        http_client=DefaultHttpxClient(proxy=self.proxy, trust_env=False), max_retries=0)
+        return self._proxy_client
 
     def _create_async_client(self) -> Any:
         if self._async_client is not None:
@@ -180,8 +214,22 @@ class OpenAICompatibleImageProvider(ImageProvider):
                 "AsyncOpenAI not available in this openai SDK version. "
                 f"{_dependency_hint('openai', upgrade=True)}"
             ) from exc
-        self._async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        if self.proxy:
+            from openai import DefaultAsyncHttpxClient
+            self._async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url,
+                                             http_client=DefaultAsyncHttpxClient(trust_env=False), max_retries=0)
+        else:
+            self._async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._async_client
+
+    def _create_proxy_async_client(self) -> Any:
+        if self._proxy_async_client is None:
+            from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+            self._proxy_async_client = AsyncOpenAI(
+                api_key=self.api_key, base_url=self.base_url,
+                http_client=DefaultAsyncHttpxClient(proxy=self.proxy, trust_env=False), max_retries=0,
+            )
+        return self._proxy_async_client
 
 
 def _open_files(paths: List[Path]):

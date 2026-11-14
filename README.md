@@ -207,6 +207,7 @@ API/CLI 模式自动读取 `~/.codex-ppt-skill/.env`。Windows 默认路径为 `
 
 ```dotenv
 IMAGE_PROVIDER=nebula
+PROXY=http://127.0.0.1:81
 
 [nebula]
 NEBULA_API_KEY=your-nebula-api-key
@@ -234,6 +235,8 @@ TEAMOROUTER_QUALITY=high
 ```
 
 `IMAGE_PROVIDER` 必须放在第一个分组之前，可选 `nebula`、`openai`、`atlascloud`、`teamorouter`。工具只加载选中分组，不从其他分组或顶层旧字段补取密钥。选择项未知、缺少同名分组，或文件包含分组却未指定选择项时，会报告配置错误。此设置选择 API 服务商，内置工具与 API/CLI 后端仍按制作流程确认。
+
+`PROXY` 是可选的 HTTP(S) 代理地址，放在第一个分组之前，例如 `PROXY=http://127.0.0.1:81`。API/CLI 请求先直连，仅在连接阶段失败时通过代理重试一次；HTTP 错误或请求结果不明时不自动重发。进程环境变量 `PROXY` 优先于文件值。
 
 | 分组 | 配置说明 |
 | --- | --- |

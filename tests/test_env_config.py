@@ -19,6 +19,7 @@ from image_providers.openai_compatible import OpenAICompatibleImageProvider
 
 
 CONFIG = """IMAGE_PROVIDER=nebula
+PROXY=http://127.0.0.1:81
 OPENAI_API_KEY=legacy-secret
 [nebula]
 NEBULA_API_KEY="nebula secret # with spaces"
@@ -47,7 +48,7 @@ class ProviderConfigTests(unittest.TestCase):
         self.path.write_text(CONFIG, encoding="utf-8")
         self.env = {key: value for key, value in os.environ.items()
                     if key not in (*ENV_FIELDS, *NEBULA_OPTIONS, *TEAMOROUTER_OPTIONS,
-                                   "IMAGE_PROVIDER", "CODEX_PPT_HOME")}
+                                   "IMAGE_PROVIDER", "CODEX_PPT_HOME", "PROXY")}
         self.env["CODEX_PPT_HOME"] = str(self.home)
 
     def run_cli(self, script, *args, env=None):
@@ -68,6 +69,13 @@ class ProviderConfigTests(unittest.TestCase):
         self.assertEqual(values["CODEX_PPT_IMAGE_MODEL"], "gpt-image-2.5-flare")
         self.assertEqual(values["TEAMOROUTER_SIZE"], "3840x2160")
         self.assertEqual(values["TEAMOROUTER_QUALITY"], "high")
+        self.assertEqual(values["PROXY"], "http://127.0.0.1:81")
+
+    def test_proxy_root_precedence_and_validation(self):
+        values = load_env_values(self.path, {"IMAGE_PROVIDER": "teamorouter", "PROXY": "http://localhost:82"})
+        self.assertEqual(values["PROXY"], "http://localhost:82")
+        with self.assertRaises(ValueError):
+            load_env_values(self.path, {"PROXY": "socks5://localhost:1080"})
 
     def test_process_overrides_and_legacy_config(self):
         values = load_env_values(self.path, {"IMAGE_PROVIDER": "openai", "OPENAI_API_KEY": "process-secret"})
@@ -211,6 +219,7 @@ class ProviderConfigTests(unittest.TestCase):
         result = self.run_cli("codex_ppt_runtime.py", "config", "--provider", "teamorouter")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(read_env_file(self.path)[0]["IMAGE_PROVIDER"], "teamorouter")
+        self.assertEqual(read_env_file(self.path)[0]["PROXY"], "http://127.0.0.1:81")
         self.assertEqual(read_env_file(self.path)[1]["nebula"]["NEBULA_API_KEY"],
                          "nebula secret # with spaces")
 
